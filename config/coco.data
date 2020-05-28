@@ -1,0 +1,4 @@
+classes= 1
+train=/home/haodong/Data/Gesture_Data/egohands/images/train/train_labels.csv
+valid=/home/haodong/Data/Gesture_Data/egohands/images/test/test_labels.csv
+names=config/coco.names
