@@ -6,11 +6,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 
-import os,inspect,sys
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(currentdir)
-sys.path.insert(0,parentdir)
-
 from utils import build_targets, to_cpu, parse_model_config
 
 import matplotlib.pyplot as plt
