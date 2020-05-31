@@ -39,7 +39,7 @@ def random_resize(images, min_size=288, max_size=448):
 
 
 class ImageFolder(Dataset):
-    def __init__(self, folder_path, img_size=416):
+    def __init__(self, folder_path, img_size=256):
         self.files = sorted(glob.glob("%s/*.*" % folder_path))
         self.img_size = img_size
 
@@ -59,7 +59,7 @@ class ImageFolder(Dataset):
 
 
 class ListDataset(Dataset):
-    def __init__(self, label_file, img_size=416, augment=True, multiscale=True, normalized_labels=True):
+    def __init__(self, label_file, img_size=256, augment=True, multiscale=True, normalized_labels=True):
         self.label_file = label_file
         self.data = pd.read_csv(label_file)
         # print(self.data.columns)
