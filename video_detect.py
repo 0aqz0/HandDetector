@@ -8,11 +8,10 @@ import time
 import datetime
 import argparse
 
+import cv2
 from PIL import Image
 
 import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets
 from torch.autograd import Variable
 
 import matplotlib.pyplot as plt
@@ -21,9 +20,8 @@ from matplotlib.ticker import NullLocator
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_folder", type=str, default="data/samples", help="path to dataset")
     parser.add_argument("--model_def", type=str, default="config/yolov3.cfg", help="path to model definition file")
-    parser.add_argument("--weights_path", type=str, default="weights/yolov3.pth", help="path to weights file")
+    parser.add_argument("--weights_path", type=str, default="weights/yolov3.weights", help="path to weights file")
     parser.add_argument("--class_path", type=str, default="data/coco.names", help="path to class label file")
     parser.add_argument("--conf_thres", type=float, default=0.8, help="object confidence threshold")
     parser.add_argument("--nms_thres", type=float, default=0.4, help="iou thresshold for non-maximum suppression")
@@ -34,8 +32,6 @@ if __name__ == "__main__":
     print(opt)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    os.makedirs("output", exist_ok=True)
 
     # Set up model
     model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
@@ -49,61 +45,67 @@ if __name__ == "__main__":
 
     model.eval()  # Set in evaluation mode
 
-    dataloader = DataLoader(
-        ImageFolder(opt.image_folder, img_size=opt.img_size),
-        batch_size=opt.batch_size,
-        shuffle=False,
-        num_workers=opt.n_cpu,
-    )
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, opt.img_size)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, opt.img_size)
+
+    im_width, im_height = (cap.get(3), cap.get(4))
+
+    cv2.namedWindow('Single-Threaded Detection', cv2.WINDOW_NORMAL)
 
     classes = load_classes(opt.class_path)  # Extracts class labels from file
 
     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
-    imgs = []  # Stores image paths
-    img_detections = []  # Stores detections for each image index
+    # Bounding-box colors
+    cmap = plt.get_cmap("tab20b")
+    colors = [cmap(i) for i in np.linspace(0, 1, 20)]
 
-    print("\nPerforming object detection:")
-    prev_time = time.time()
-    for batch_i, (img_paths, input_imgs) in enumerate(dataloader):
+    while True:
+        print("\nPerforming object detection:")
+        prev_time = time.time()
+
+        ret, image_np = cap.read()
+        # image_np = np.array(Image.open("data/samples/sample_0.jpg"))
+
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+
         # Configure input
-        input_imgs = Variable(input_imgs.type(Tensor))
+        input_imgs = transforms.ToTensor()(image_np).type(Tensor)
+        # print(input_imgs.shape, input_imgs)
+        # input_imgs = transforms.ToTensor()(Image.open("data/samples/sample_0.jpg").convert('RGB')).type(Tensor)
+        # print(input_imgs.shape, input_imgs)
+
+        input_imgs, pad = pad_to_square(input_imgs, 0)
+
+        input_imgs = resize(input_imgs, opt.img_size)
+
+        input_imgs = input_imgs.unsqueeze(0)
+
+        print(input_imgs.shape)
 
         # Get detections
         with torch.no_grad():
             detections = model(input_imgs)
+            print(detections)
             detections = non_max_suppression(detections, opt.conf_thres, opt.nms_thres)
+
+        detections = detections[0]
 
         # Log progress
         current_time = time.time()
         inference_time = datetime.timedelta(seconds=current_time - prev_time)
         prev_time = current_time
-        print("\t+ Batch %d, Inference Time: %s" % (batch_i, inference_time))
+        print("Inference Time: %s" % (inference_time))
 
-        # Save image and detections
-        imgs.extend(img_paths)
-        img_detections.extend(detections)
-
-    # Bounding-box colors
-    cmap = plt.get_cmap("tab20b")
-    colors = [cmap(i) for i in np.linspace(0, 1, 20)]
-
-    print("\nSaving images:")
-    # Iterate through images and save plot of detections
-    for img_i, (path, detections) in enumerate(zip(imgs, img_detections)):
-
-        print("(%d) Image: '%s'" % (img_i, path))
-
-        # Create plot
-        img = np.array(Image.open(path))
         plt.figure()
         fig, ax = plt.subplots(1)
-        ax.imshow(img)
+        ax.imshow(image_np)
         print(detections)
         # Draw bounding boxes and labels of detections
         if detections is not None:
             # Rescale boxes to original image
-            detections = rescale_boxes(detections, opt.img_size, img.shape[:2])
+            detections = rescale_boxes(detections, opt.img_size, image_np.shape[:2])
             unique_labels = detections[:, -1].cpu().unique()
             n_cls_preds = len(unique_labels)
             bbox_colors = random.sample(colors, n_cls_preds)
@@ -133,6 +135,10 @@ if __name__ == "__main__":
         plt.axis("off")
         plt.gca().xaxis.set_major_locator(NullLocator())
         plt.gca().yaxis.set_major_locator(NullLocator())
-        filename = path.split("/")[-1].split(".")[0]
-        plt.savefig("output/{}.png".format(filename), bbox_inches="tight", pad_inches=0.0)
+        plt.savefig("output/video_detection.png", bbox_inches="tight", pad_inches=0.0)
         plt.close()
+        cv2.imshow('Single-Threaded Detection', cv2.imread("output/video_detection.png"))
+
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
